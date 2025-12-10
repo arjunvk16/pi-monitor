@@ -11,8 +11,13 @@ from openai import OpenAI
 # --- Configuration ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") # [NEW]
+
+# --- Global Counters ---
+GEMINI_CALL_COUNT = 0
+OPENAI_CALL_COUNT = 0
 
 if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GEMINI_API_KEY]):
     print("FATAL: Missing API Keys (Telegram or Gemini). OpenAI is optional but recommended.")
@@ -71,11 +76,16 @@ def run_host_cmd(cmd):
         return False, str(e)
 
 def send_msg(text):
-    """Send Telegram message."""
+    """Send Telegram message and Log to Docker."""
+    # 1. Log to Docker/Console (Essential for transparency)
+    print(f"[TELEGRAM] {text}")
+    
+    # 2. Send to Telegram
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         requests.post(url, json={'chat_id': TELEGRAM_CHAT_ID, 'text': text, 'parse_mode': 'Markdown'}, timeout=10)
-    except: pass
+    except Exception as e:
+        print(f"[TELEGRAM ERROR] Could not send to API: {e}")
 
 # --- The "Intelligent" Core ---
 
@@ -142,8 +152,13 @@ def ask_ai_hybrid(prompt):
 
     sys_prompt = "You are a Linux SysAdmin. Analyze the error. Output a brief diagnosis, then the last line MUST be the shell command to fix it. No markdown."
     
+    global GEMINI_CALL_COUNT
+    
     # 1. Try Gemini
     try:
+        GEMINI_CALL_COUNT += 1
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [API] Gemini Call #{GEMINI_CALL_COUNT} initiated...")
+        
         response = gemini_client.models.generate_content(
             model=MODEL_GEMINI,
             contents=[f"System Prompt: {sys_prompt}\nUser: {prompt}"]
@@ -154,8 +169,12 @@ def ask_ai_hybrid(prompt):
     
     # 2. Try OpenAI (Fallback)
     if openai_client:
+        global OPENAI_CALL_COUNT
         try:
             send_msg("⚠️ Gemini failed. Switching to ChatGPT...")
+            OPENAI_CALL_COUNT += 1
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [API] OpenAI Call #{OPENAI_CALL_COUNT} initiated...")
+
             response = openai_client.chat.completions.create(
                 model=MODEL_GPT,
                 messages=[
@@ -178,7 +197,10 @@ def ask_ai_hybrid(prompt):
 # --- Monitoring Loop ---
 
 def check_system():
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [TASK] Starting system health check...")
+    
     # 1. NAS Check
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [TASK] Checking NAS mount ({NAS_MOUNT_POINT})...")
     is_mounted, _ = run_host_cmd(f"mount | grep '{NAS_MOUNT_POINT}'")
     if not is_mounted:
         if SYSTEM_STATE["nas"] == "ok":
@@ -193,11 +215,16 @@ def check_system():
             send_msg("✅ NAS is back online.")
 
     # 2. Service Check (Cockpit example)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [TASK] Checking 'cockpit' service...")
     is_active, _ = run_host_cmd("systemctl is-active cockpit.service")
     if not is_active:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [TASK] 'cockpit' service is DOWN. Troubleshooting...")
         fixed = intelligent_troubleshoot("cockpit_down", "Service 'cockpit' is inactive.")
+    else:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [TASK] 'cockpit' service is OK.")
 
     # (Add CPU/Mem checks here following same pattern...)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [TASK] System check complete.")
 
 def main():
     send_msg("🧠 *Intelligent Monitor V3 Started*\nFeatures: Cache Memory + Multi-AI Failover")
