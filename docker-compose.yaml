@@ -1,0 +1,22 @@
+services:
+  ai-agent:
+    # [CHANGED] We now use a specific image instead of 'build: .'
+    image: arjunvk/ai-agent:1.0.0
+
+    container_name: ai-agent
+    restart: unless-stopped
+
+    # Load API keys
+    env_file:
+      - .env
+
+    # [CRITICAL] Grants access to Host PID namespace
+    privileged: true
+    pid: "host"
+
+    volumes:
+      # 1. Mount Host Root (ReadOnly)
+      - /:/host/rootfs:ro
+
+      # 2. Persist the "Brain"
+      - ./ai-memory:/data
