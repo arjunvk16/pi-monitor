@@ -1,0 +1,23 @@
+# Use a lightweight Python base
+FROM python:3.11-alpine
+
+# Install system dependencies
+# util-linux: Required for 'nsenter' to execute commands on the host
+# bash: For easier debugging if needed
+RUN apk add --no-cache util-linux bash
+
+# Create the data directory for the "Brain" (fix_cache.json)
+RUN mkdir -p /data
+
+# Install Python libraries
+RUN pip install --no-cache-dir requests google-genai openai
+
+# Copy the script
+COPY monitor.py /monitor.py
+
+# Healthcheck: Checks if the script is updating the heartbeat file
+HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
+  CMD python3 -c 'import time, sys; sys.exit(0) if time.time() - float(open("/tmp/heartbeat").read()) < 90 else sys.exit(1)'
+
+# Run the script unbuffered (logs show up immediately)
+CMD ["python3", "-u", "/monitor.py"]
